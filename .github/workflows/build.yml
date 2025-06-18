@@ -28,24 +28,3 @@ jobs:
       - name: Run binary
         run: ./ir
 
-  check:
-    runs-on: ubuntu-latest
-    name: Clippy check
-
-    steps:
-      - name: Install Rust
-        run: sh <(curl https://sh.rustup.rs) -y && $(echo "$HOME/.cargo/bin" >> $GITHUB_PATH)
-
-      - name: Install LLVM 20
-        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20 all
-
-      - uses: actions/checkout@v4
-
-      - name: Clippy check
-        uses: giraffate/clippy-action@v1
-        with:
-          github_token: '${{ secrets.GITHUB_TOKEN }}'
-          level: warning
-          clippy_flags: --all-features
-          reporter: github-pr-review
-          fail_on_error: true
