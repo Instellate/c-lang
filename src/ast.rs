@@ -1,11 +1,10 @@
-use crate::ast::ElseStatement::Else;
 use crate::tokenizer::{Token, Tokenizer};
 use anyhow::{Result, anyhow};
 
 pub type Block = Vec<Ast>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Operator {
+pub enum InfixOperator {
     Assignment,
     Equals,
     Mul,
@@ -15,19 +14,18 @@ pub enum Operator {
     Modulo,
 }
 
-impl Operator {
+impl InfixOperator {
     pub fn precedence(&self) -> u16 {
         match self {
-            Self::Modulo => 2,
-            Self::Mul | Self::Div => 3,
-            Self::Add | Self::Sub => 4,
-            Self::Equals => 5,
-            Self::Assignment => 6,
+            Self::Mul | Self::Div | Self::Modulo => 2,
+            Self::Add | Self::Sub => 3,
+            Self::Equals => 4,
+            Self::Assignment => 5,
         }
     }
 }
 
-impl TryFrom<String> for Operator {
+impl TryFrom<String> for InfixOperator {
     type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -52,9 +50,9 @@ pub enum Constant {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Expression {
-    Prefix(Operator, Box<Ast>),
-    Infix(Box<Ast>, Operator, Box<Ast>),
-    Postfix(Box<Ast>, Operator),
+    Prefix(InfixOperator, Box<Ast>),
+    Infix(Box<Ast>, InfixOperator, Box<Ast>),
+    Postfix(Box<Ast>, InfixOperator),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -212,16 +210,16 @@ impl<'a> Parser<'a> {
                 _ => break,
             };
 
-            let op = Operator::try_from(op_string)?;
+            let op = InfixOperator::try_from(op_string)?;
             let precedence = op.precedence();
 
-            if precedence >= max_precedence {
+            if precedence > max_precedence {
                 break;
             }
             self.tokenizer.next_token();
 
             let rhs = {
-                let ast = self.parse_ast()?;
+                let ast = self.expr_parse_ast(true)?;
                 self.parse_expression(ast, precedence)
             }?;
 
@@ -414,7 +412,7 @@ impl<'a> Parser<'a> {
 
         Ok(Ast::Call(FunctionCall::new(name, args)))
     }
-    
+
     fn parse_identifier(&mut self, is_extern: bool) -> Result<Ast> {
         let Token::Identifier(ident) = self.tokenizer.next_token() else {
             return Err(anyhow!("Expected identifier"));
@@ -458,7 +456,7 @@ impl<'a> Parser<'a> {
 
                 Some(Box::new(ElseStatement::ElseIf(if_statement)))
             } else if self.tokenizer.peek_token() == Token::BraceOpen {
-                Some(Box::new(Else(self.parse_block()?)))
+                Some(Box::new(ElseStatement::Else(self.parse_block()?)))
             } else {
                 return Err(anyhow!("Expected 'if' or '{{'"));
             }
@@ -473,12 +471,12 @@ impl<'a> Parser<'a> {
         )))
     }
 
-    pub fn parse_ast(&mut self) -> Result<Ast> {
+    fn expr_parse_ast(&mut self, handled_by_expr: bool) -> Result<Ast> {
         let token = self.tokenizer.peek_token();
 
-        match token {
-            Token::Integer(_) => self.parse_integer(),
+        let ast = match token {
             Token::Identifier(_) => self.parse_identifier(false),
+            Token::Integer(_) => self.parse_integer(),
             Token::String(_) => self.parse_string(),
             Token::ExternKeyword => {
                 self.tokenizer.next_token();
@@ -487,6 +485,16 @@ impl<'a> Parser<'a> {
                 }
 
                 self.parse_identifier(true)
+            }
+            Token::ParenOpen => {
+                self.tokenizer.next_token();
+                let lhs = self.parse_ast()?;
+                let expr = self.parse_expression(lhs, u16::MAX)?;
+                if self.tokenizer.next_token() != Token::ParenClose {
+                    Err(anyhow!("Expected ')'"))
+                } else {
+                    Ok(expr)
+                }
             }
             Token::EOF => Ok(Ast::EOF),
             Token::ReturnKeyword => {
@@ -499,6 +507,19 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => self.parse_statement(),
+        }?;
+
+        let peek = self.tokenizer.peek_token();
+        if !handled_by_expr {
+            if let Token::Operator(_) = peek {
+                return self.parse_expression(ast, u16::MAX);
+            }
         }
+
+        Ok(ast)
+    }
+
+    pub fn parse_ast(&mut self) -> Result<Ast> {
+        self.expr_parse_ast(false)
     }
 }
