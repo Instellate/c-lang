@@ -45,3 +45,7 @@ jobs:
         uses: giraffate/clippy-action@v1
         with:
           github_token: '${{ secrets.GITHUB_TOKEN }}'
+          level: warning
+          clippy_flags: --all-features
+          reporter: github-pr-review
+          fail_on_error: true

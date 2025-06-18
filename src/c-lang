@@ -18,7 +18,7 @@ int main(int argc, char *argv) {
     }
 
     printf("That is all I have to say really\n");
-    printf("%d\n", 2 * 4 + argc);
+    printf("%d\n", 2 * (4 + argc));
 
     return 0;
 }

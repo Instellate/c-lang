@@ -1,0 +1,29 @@
+name: Check
+
+on: [ pull_request ]
+
+env:
+  LLVM_SYS_181_PREFIX: /usr/lib/llvm-20
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    name: Clippy check
+
+    steps:
+      - name: Install Rust
+        run: sh <(curl https://sh.rustup.rs) -y && $(echo "$HOME/.cargo/bin" >> $GITHUB_PATH)
+
+      - name: Install LLVM 20
+        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20 all
+
+      - uses: actions/checkout@v4
+
+      - name: Clippy check
+        uses: giraffate/clippy-action@v1
+        with:
+          level: warning
+          clippy_flags: --all-features
+          reporter: github-pr-check
+          fail_on_error: true
+
