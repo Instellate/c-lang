@@ -1,4 +1,4 @@
-extern int printf(char *fmt, ...);
+extern int printf(const char *fmt, ...);
 
 int gcd(int a, int b) {
     if (b == 0) {
@@ -8,7 +8,7 @@ int gcd(int a, int b) {
     return gcd(b, a % b);
 }
 
-int main(int argc, char *argv) {
+int main(int argc) {
     if (argc % 2 == 0) {
         printf("argc is divisible by 2\n");
     } else if (argc % 3 == 0) {

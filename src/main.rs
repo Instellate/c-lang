@@ -7,7 +7,7 @@ pub mod ast;
 pub mod backend;
 pub mod tokenizer;
 
-const STR: &str = include_str!("c-lang");
+const STR: &str = include_str!("c-lang.c");
 
 fn main() -> anyhow::Result<()> {
     let mut parser = Parser::new(Tokenizer::new(&STR));
