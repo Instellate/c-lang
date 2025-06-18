@@ -6,13 +6,18 @@ use anyhow::{Result, anyhow};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
+use inkwell::llvm_sys::core::LLVMSetTailCall;
 use inkwell::module::{Linkage, Module};
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
 use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, InstructionOpcode, PointerValue};
+use inkwell::values::{
+    AnyValue, AsValueRef, BasicValue, BasicValueEnum, FunctionValue, InstructionOpcode,
+    PointerValue,
+};
 use inkwell::{AddressSpace, Either, IntPredicate, OptimizationLevel};
+use llvm_sys::prelude::LLVMBool;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -101,7 +106,9 @@ impl<'ctx> IrBuilder<'ctx> {
         let fn_val = self.module.add_function(&sig.name, fn_type, linkage);
         for (i, arg) in sig.arguments.into_iter().enumerate() {
             if let FunctionArgType::Named(n) = arg {
-                if let Some(p) = fn_val.get_nth_param(i as u32) { p.set_name(&n.name) }
+                if let Some(p) = fn_val.get_nth_param(i as u32) {
+                    p.set_name(&n.name)
+                }
             }
         }
 
@@ -145,6 +152,30 @@ impl<'ctx> IrBuilder<'ctx> {
             function.block,
             self.context.append_basic_block(function_value, "entry"),
         )?;
+
+        for block in function_value.get_basic_block_iter() {
+            let returns = block
+                .get_last_instruction()
+                .map(|i| i.get_opcode() == InstructionOpcode::Return)
+                .unwrap_or(false);
+
+            if returns {
+                let inst: Vec<inkwell::values::InstructionValue> =
+                    block.get_instructions().collect();
+                let mut rev = inst.into_iter().rev();
+                rev.next().expect("Return instruction");
+
+                for _ in 0..3 {
+                    let Some(val) = rev.next() else {
+                        break;
+                    };
+
+                    if val.get_opcode() == InstructionOpcode::Call {
+                        unsafe { LLVMSetTailCall(val.as_value_ref(), LLVMBool::from(true)) }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -338,6 +369,7 @@ impl<'ctx> IrBuilder<'ctx> {
             .builder
             .build_call(function, &values, "func-call")?
             .try_as_basic_value();
+
         Ok(match call_value {
             Either::Left(b) => b,
             Either::Right(_) => return Err(anyhow!("Expected basic value")),
@@ -409,21 +441,19 @@ impl<'ctx> IrBuilder<'ctx> {
 
         if ret.is_none() {
             self.builder.build_unconditional_branch(continue_block)?;
-            self.builder.position_at_end(continue_block);
-        } else if let Some((_, returns_early)) = else_block {
+        }
+
+        if let Some((_, returns_early)) = else_block {
             if returns_early {
                 continue_block
                     .remove_from_function()
                     .map_err(|_| anyhow!("Couldn't remove from function"))?;
             } else {
                 self.builder.build_unconditional_branch(continue_block)?;
-                self.builder.position_at_end(continue_block);
             }
-        } else {
-            self.builder.build_unconditional_branch(continue_block)?;
-            self.builder.position_at_end(continue_block);
         }
 
+        self.builder.position_at_end(continue_block);
         Ok(if_block)
     }
 
