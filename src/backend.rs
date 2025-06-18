@@ -101,12 +101,12 @@ impl<'ctx> IrBuilder<'ctx> {
         let fn_val = self.module.add_function(&sig.name, fn_type, linkage);
         for (i, arg) in sig.arguments.into_iter().enumerate() {
             if let FunctionArgType::Named(n) = arg {
-                fn_val.get_nth_param(i as u32).map(|p| p.set_name(&n.name));
+                if let Some(p) = fn_val.get_nth_param(i as u32) { p.set_name(&n.name) }
             }
         }
 
         self.references
-            .insert(sig.name, ReferenceType::Function(fn_val.clone()));
+            .insert(sig.name, ReferenceType::Function(fn_val));
 
         Ok(fn_val)
     }
@@ -117,12 +117,10 @@ impl<'ctx> IrBuilder<'ctx> {
     ) -> Result<inkwell::types::BasicMetadataTypeEnum<'ctx>> {
         if argument.is_pointer {
             Ok(self.context.ptr_type(AddressSpace::from(0)).into())
+        } else if let ReferenceType::Type(arg_type) = self.visit_identifier(&argument.arg_type)? {
+            Ok(arg_type.into())
         } else {
-            if let ReferenceType::Type(arg_type) = self.visit_identifier(&argument.arg_type)? {
-                Ok(arg_type.into())
-            } else {
-                Err(anyhow!("Expected type"))
-            }
+            Err(anyhow!("Expected type"))
         }
     }
 
@@ -230,8 +228,8 @@ impl<'ctx> IrBuilder<'ctx> {
         Ok(value.into())
     }
 
-    fn resolve_sides(&mut self, ast: Box<Ast>) -> Result<ReferenceType<'ctx>> {
-        match *ast {
+    fn resolve_sides(&mut self, ast: Ast) -> Result<ReferenceType<'ctx>> {
+        match ast {
             Ast::Expression(expr) => Ok(ReferenceType::Value(self.visit_expression(expr)?)),
             Ast::Constant(const_value) => {
                 Ok(ReferenceType::Value(self.visit_constant(const_value)?))
@@ -250,8 +248,8 @@ impl<'ctx> IrBuilder<'ctx> {
             return Err(anyhow!("Expected infix"));
         };
 
-        let lhs_val = self.resolve_sides(lhs)?;
-        let rhs_val = self.resolve_sides(rhs)?;
+        let lhs_val = self.resolve_sides(*lhs)?;
+        let rhs_val = self.resolve_sides(*rhs)?;
 
         match operator {
             InfixOperator::Assignment => {
@@ -363,7 +361,7 @@ impl<'ctx> IrBuilder<'ctx> {
 
             let (else_block, returns_early) = match *else_statement {
                 ElseStatement::Else(e) => {
-                    let else_block = self.visit_block(e, else_block.clone())?;
+                    let else_block = self.visit_block(e, else_block)?;
 
                     let ret = else_block
                         .get_instructions()
@@ -437,7 +435,7 @@ impl<'ctx> IrBuilder<'ctx> {
                 .references
                 .get(name)
                 .cloned()
-                .unwrap_or_else(|| ReferenceType::None)),
+                .unwrap_or(ReferenceType::None)),
         }
     }
 

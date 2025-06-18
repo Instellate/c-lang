@@ -190,11 +190,7 @@ pub enum Ast {
 
 impl Ast {
     pub fn is_expression(&self) -> bool {
-        if let Self::Expression(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Self::Expression(_))
     }
 }
 
@@ -484,11 +480,9 @@ impl<'a> Parser<'a> {
         };
 
         let mut ty = Type::Named(ident);
-        loop {
-            match self.tokenizer.next_token() {
-                Token::Operator("*") => ty = Type::Pointer(Box::new(ty)),
-                _ => break,
-            }
+
+        while let Token::Operator("*") = self.tokenizer.next_token() {
+            ty = Type::Pointer(Box::new(ty))
         }
 
         Ok(Ast::Type(ty))

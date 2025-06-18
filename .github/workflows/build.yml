@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install rust
+      - name: Install Rust
         run: sh <(curl https://sh.rustup.rs) -y && $(echo "$HOME/.cargo/bin" >> $GITHUB_PATH)
 
       - name: Install LLVM 20
@@ -26,3 +26,21 @@ jobs:
 
       - name: Run binary
         run: ./ir
+
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Rust
+        run: sh <(curl https://sh.rustup.rs) -y && $(echo "$HOME/.cargo/bin" >> $GITHUB_PATH)
+
+      - name: Install LLVM 20
+        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20 all
+
+      - uses: actions/checkout@v4
+
+      - name: Clippy check
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features

@@ -34,35 +34,19 @@ pub enum Token {
 
 impl Token {
     pub fn is_identifier(&self) -> bool {
-        if let Self::Identifier(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Self::Identifier(_))
     }
 
     pub fn is_integer(&self) -> bool {
-        if let Self::Integer(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Self::Integer(_))
     }
 
     pub fn is_string(&self) -> bool {
-        if let Self::String(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Self::String(_))
     }
 
     pub fn is_operator(&self) -> bool {
-        if let Self::Operator(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Self::Operator(_))
     }
 }
 
@@ -78,7 +62,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn peek_char(&mut self) -> Option<char> {
-        self.chars.peek().map(|c| c.clone())
+        self.chars.peek().copied()
     }
 
     fn peek_is(&mut self, chr: char) -> bool {
@@ -157,7 +141,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     pub fn next_token(&mut self) -> Token {
-        self.internal_next_token().unwrap_or_else(|| Token::EOF)
+        self.internal_next_token().unwrap_or(Token::EOF)
     }
 
     pub fn peek_token(&self) -> Token {
