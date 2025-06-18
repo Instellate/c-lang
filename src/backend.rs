@@ -13,7 +13,7 @@ use inkwell::targets::{
 };
 use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{
-    AnyValue, AsValueRef, BasicValue, BasicValueEnum, FunctionValue, InstructionOpcode,
+    AsValueRef, BasicValue, BasicValueEnum, FunctionValue, InstructionOpcode,
     PointerValue,
 };
 use inkwell::{AddressSpace, Either, IntPredicate, OptimizationLevel};

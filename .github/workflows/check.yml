@@ -23,7 +23,7 @@ jobs:
         uses: giraffate/clippy-action@v1
         with:
           level: warning
-          clippy_flags: --all-features
+          clippy_flags: --all-features --color always
           reporter: github-pr-check
           fail_on_error: true
 
