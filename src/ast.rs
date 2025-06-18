@@ -170,6 +170,7 @@ impl IfStatement {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Type {
     Named(String),
+    Const(Box<Type>),
     Pointer(Box<Type>),
 }
 
@@ -475,6 +476,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Ast> {
+        let is_const = if self.tokenizer.peek_token() == Token::ConstKeyword {
+            self.tokenizer.next_token();
+            true
+        } else {
+            false
+        };
+
         let Token::Identifier(ident) = self.tokenizer.next_token() else {
             return Err(anyhow!("Expected identifier"));
         };
@@ -485,7 +493,11 @@ impl<'a> Parser<'a> {
             ty = Type::Pointer(Box::new(ty))
         }
 
-        Ok(Ast::Type(ty))
+        Ok(Ast::Type(if is_const {
+            Type::Const(Box::new(ty))
+        } else {
+            ty
+        }))
     }
 
     fn expr_parse_ast(&mut self, handled_by_expr: bool) -> Result<Ast> {
