@@ -1,0 +1,9 @@
+[package]
+name = "c-lang"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { version = "1.0.98", features = ["backtrace"] }
+inkwell = { version =  "0.6.0", features = ["llvm18-1"] }
+unescaper = "0.1.6"
