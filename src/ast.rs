@@ -481,28 +481,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Ast> {
-        let mut tokens = vec![];
-
-        loop {
-            match self.tokenizer.next_token() {
-                Token::Operator("*") => tokens.push(Token::Operator("*")),
-                Token::Identifier(i) => tokens.push(Token::Identifier(i)),
-                _ => break,
-            }
-        }
-
-        let mut tokens_iter = tokens.into_iter().rev();
-        let mut ty = if let Some(Token::Identifier(i)) = tokens_iter.next() {
-            Type::Named(i)
-        } else {
+        let Token::Identifier(ident) = self.tokenizer.next_token() else {
             return Err(anyhow!("Expected identifier"));
         };
 
-        for token in tokens_iter {
-            let Token::Operator("*") = token else {
-                return Err(anyhow!("Expected '*'"));
-            };
-            ty = Type::Pointer(Box::new(ty))
+        let mut ty = Type::Named(ident);
+        loop {
+            match self.tokenizer.next_token() {
+                Token::Operator("*") => ty = Type::Pointer(Box::new(ty)),
+                _ => break,
+            }
         }
 
         Ok(Ast::Type(ty))
