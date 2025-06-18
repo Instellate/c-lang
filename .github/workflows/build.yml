@@ -1,0 +1,28 @@
+name: Build
+
+on:
+  push:
+    branches: [ "*" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  LLVM_SYS_181_PREFIX: /usr/lib/llvm-20
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install rust
+        run: sh <(curl https://sh.rustup.rs) -y && $(echo "$HOME/.cargo/bin" >> $GITHUB_PATH)
+
+      - name: Install LLVM 20
+        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20 all
+
+      - uses: actions/checkout@v4
+
+      - name: Build project and binary
+        run: make build CARGOFLAGS="--release"
+
+      - name: Run binary
+        run: ./ir

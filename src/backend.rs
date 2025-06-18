@@ -1,6 +1,6 @@
 use crate::ast::{
     Ast, Constant, ElseStatement, Expression, Function, FunctionArgType, FunctionArgument,
-    FunctionCall, FunctionSignature, IfStatement, Operator, VariableDeclaration,
+    FunctionCall, FunctionSignature, IfStatement, InfixOperator, VariableDeclaration,
 };
 use anyhow::{Result, anyhow};
 use inkwell::basic_block::BasicBlock;
@@ -254,7 +254,7 @@ impl<'ctx> IrBuilder<'ctx> {
         let rhs_val = self.resolve_sides(rhs)?;
 
         match operator {
-            Operator::Assignment => {
+            InfixOperator::Assignment => {
                 let ReferenceType::VariableValue(value, _) = lhs_val.clone() else {
                     return Err(anyhow!("Expected variable"));
                 };
@@ -264,7 +264,7 @@ impl<'ctx> IrBuilder<'ctx> {
                 let val = lhs_val.get_value(&self.builder)?;
                 Ok(val)
             }
-            Operator::Equals => Ok(self
+            InfixOperator::Equals => Ok(self
                 .builder
                 .build_int_compare(
                     IntPredicate::EQ,
@@ -273,7 +273,7 @@ impl<'ctx> IrBuilder<'ctx> {
                     "cmp",
                 )?
                 .into()),
-            Operator::Mul => Ok(self
+            InfixOperator::Mul => Ok(self
                 .builder
                 .build_int_mul(
                     lhs_val.get_value(&self.builder)?.into_int_value(),
@@ -281,7 +281,7 @@ impl<'ctx> IrBuilder<'ctx> {
                     "mul",
                 )?
                 .into()),
-            Operator::Div => Ok(self
+            InfixOperator::Div => Ok(self
                 .builder
                 .build_int_signed_div(
                     lhs_val.get_value(&self.builder)?.into_int_value(),
@@ -289,7 +289,7 @@ impl<'ctx> IrBuilder<'ctx> {
                     "signed-div",
                 )?
                 .into()),
-            Operator::Add => Ok(self
+            InfixOperator::Add => Ok(self
                 .builder
                 .build_int_add(
                     lhs_val.get_value(&self.builder)?.into_int_value(),
@@ -297,7 +297,7 @@ impl<'ctx> IrBuilder<'ctx> {
                     "add",
                 )?
                 .into()),
-            Operator::Sub => Ok(self
+            InfixOperator::Sub => Ok(self
                 .builder
                 .build_int_sub(
                     lhs_val.get_value(&self.builder)?.into_int_value(),
@@ -305,7 +305,7 @@ impl<'ctx> IrBuilder<'ctx> {
                     "sub",
                 )?
                 .into()),
-            Operator::Modulo => Ok(self
+            InfixOperator::Modulo => Ok(self
                 .builder
                 .build_int_signed_rem(
                     lhs_val.get_value(&self.builder)?.into_int_value(),
