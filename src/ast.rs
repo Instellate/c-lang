@@ -27,11 +27,11 @@ impl Operator {
     }
 }
 
-impl TryFrom<String> for Operator {
+impl TryFrom<&str> for Operator {
     type Error = anyhow::Error;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
             "=" => Ok(Self::Assignment),
             "==" => Ok(Self::Equals),
             "*" => Ok(Self::Mul),
@@ -170,10 +170,17 @@ impl IfStatement {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Type {
+    Named(String),
+    Pointer(Box<Type>),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Ast {
     VarDeclaration(VariableDeclaration),
     Expression(Expression),
     Identifier(String),
+    Type(Type),
     Constant(Constant),
     FunctionSig(FunctionSignature),
     Function(Function),
@@ -414,7 +421,7 @@ impl<'a> Parser<'a> {
 
         Ok(Ast::Call(FunctionCall::new(name, args)))
     }
-    
+
     fn parse_identifier(&mut self, is_extern: bool) -> Result<Ast> {
         let Token::Identifier(ident) = self.tokenizer.next_token() else {
             return Err(anyhow!("Expected identifier"));
@@ -471,6 +478,34 @@ impl<'a> Parser<'a> {
             if_block,
             else_statement,
         )))
+    }
+
+    fn parse_type(&mut self) -> Result<Ast> {
+        let mut tokens = vec![];
+
+        loop {
+            match self.tokenizer.next_token() {
+                Token::Operator("*") => tokens.push(Token::Operator("*")),
+                Token::Identifier(i) => tokens.push(Token::Identifier(i)),
+                _ => break,
+            }
+        }
+
+        let mut tokens_iter = tokens.into_iter().rev();
+        let mut ty = if let Some(Token::Identifier(i)) = tokens_iter.next() {
+            Type::Named(i)
+        } else {
+            return Err(anyhow!("Expected identifier"));
+        };
+
+        for token in tokens_iter {
+            let Token::Operator("*") = token else {
+                return Err(anyhow!("Expected '*'"));
+            };
+            ty = Type::Pointer(Box::new(ty))
+        }
+
+        Ok(Ast::Type(ty))
     }
 
     pub fn parse_ast(&mut self) -> Result<Ast> {

@@ -11,7 +11,7 @@ pub enum Token {
     Identifier(String),
     Integer(String),
     String(String),
-    Operator(String),
+    Operator(&'static str),
     Semicolon,
     Comma,
     Ampersand,
@@ -188,7 +188,7 @@ impl<'a> Tokenizer<'a> {
                 let integer = format!("-{}", self.consume_integer()?);
                 Some(Token::Integer(integer))
             } else {
-                Some(Token::Operator(String::from("-")))
+                Some(Token::Operator("-"))
             }
         } else if peek.is_numeric() {
             Some(Token::Integer(self.consume_integer()?))
@@ -208,15 +208,15 @@ impl<'a> Tokenizer<'a> {
                 '=' => {
                     if self.peek_is('=') {
                         self.next_char()?;
-                        Some(Token::Operator(String::from("==")))
+                        Some(Token::Operator("=="))
                     } else {
-                        Some(Token::Operator(String::from("=")))
+                        Some(Token::Operator("="))
                     }
                 }
-                '*' => Some(Token::Operator(String::from("*"))),
-                '/' => Some(Token::Operator(String::from("/"))),
-                '+' => Some(Token::Operator(String::from("+"))),
-                '-' => Some(Token::Operator(String::from("-"))),
+                '*' => Some(Token::Operator("*")),
+                '/' => Some(Token::Operator("/")),
+                '+' => Some(Token::Operator("+")),
+                '-' => Some(Token::Operator("-")),
                 '{' => Some(Token::BraceOpen),
                 '}' => Some(Token::BraceClose),
                 '(' => Some(Token::ParenOpen),
@@ -226,7 +226,7 @@ impl<'a> Tokenizer<'a> {
                 ';' => Some(Token::Semicolon),
                 ',' => Some(Token::Comma),
                 '&' => Some(Token::Ampersand),
-                '%' => Some(Token::Operator(String::from("%"))),
+                '%' => Some(Token::Operator("%")),
                 _ => None,
             }
         }
