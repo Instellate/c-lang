@@ -1,3 +1,4 @@
+use crate::is_of_type;
 use crate::tokenizer::{Token, Tokenizer};
 use anyhow::{Result, anyhow};
 
@@ -7,36 +8,52 @@ pub type Block = Vec<Ast>;
 pub enum InfixOperator {
     Assignment,
     Equals,
+    NotEquals,
+    Greater,
+    GreaterOrEq,
+    Less,
+    LessOrEq,
     Mul,
     Div,
     Add,
     Sub,
     Modulo,
+    MemberAccess,
+    MemberAccessPtr,
 }
 
 impl InfixOperator {
     pub fn precedence(&self) -> u16 {
         match self {
+            Self::MemberAccess | Self::MemberAccessPtr => 1,
             Self::Mul | Self::Div | Self::Modulo => 2,
             Self::Add | Self::Sub => 3,
-            Self::Equals => 4,
-            Self::Assignment => 5,
+            Self::Less | Self::LessOrEq | Self::Greater | Self::GreaterOrEq => 4,
+            Self::Equals | Self::NotEquals => 5,
+            Self::Assignment => 6,
         }
     }
 }
 
-impl TryFrom<String> for InfixOperator {
+impl TryFrom<&str> for InfixOperator {
     type Error = anyhow::Error;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
             "=" => Ok(Self::Assignment),
             "==" => Ok(Self::Equals),
+            "!=" => Ok(Self::NotEquals),
+            ">" => Ok(Self::Greater),
+            ">=" => Ok(Self::GreaterOrEq),
+            "<" => Ok(Self::Less),
+            "<=" => Ok(Self::LessOrEq),
             "*" => Ok(Self::Mul),
             "/" => Ok(Self::Div),
             "+" => Ok(Self::Add),
             "-" => Ok(Self::Sub),
             "%" => Ok(Self::Modulo),
+            "." => Ok(Self::MemberAccess),
+            "->" => Ok(Self::MemberAccessPtr),
             _ => Err(anyhow!("Operator does not exist")),
         }
     }
@@ -46,6 +63,10 @@ impl TryFrom<String> for InfixOperator {
 pub enum Constant {
     Integer(i64),
     String(String),
+}
+
+impl Constant {
+    is_of_type! { Integer, String }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -168,10 +189,18 @@ impl IfStatement {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Type {
+    Named(String),
+    Const(Box<Type>),
+    Pointer(Box<Type>),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Ast {
     VarDeclaration(VariableDeclaration),
     Expression(Expression),
     Identifier(String),
+    Type(Type),
     Constant(Constant),
     FunctionSig(FunctionSignature),
     Function(Function),
@@ -182,12 +211,17 @@ pub enum Ast {
 }
 
 impl Ast {
-    pub fn is_expression(&self) -> bool {
-        if let Self::Expression(_) = self {
-            true
-        } else {
-            false
-        }
+    is_of_type! {
+        VarDeclaration,
+        Expression,
+        Identifier,
+        Type,
+        Constant,
+        FunctionSig,
+        Function,
+        Return,
+        IfStatement,
+        Call
     }
 }
 
@@ -402,8 +436,7 @@ impl<'a> Parser<'a> {
             let ast = self.parse_ast()?;
             args.push(ast);
 
-            let token1 = self.tokenizer.next_token();
-            match token1 {
+            match self.tokenizer.next_token() {
                 Token::ParenClose => break,
                 Token::Comma => {}
                 _ => return Err(anyhow!("Expected ')' or ','")),
@@ -469,6 +502,31 @@ impl<'a> Parser<'a> {
             if_block,
             else_statement,
         )))
+    }
+
+    fn parse_type(&mut self) -> Result<Ast> {
+        let is_const = if self.tokenizer.peek_token() == Token::ConstKeyword {
+            self.tokenizer.next_token();
+            true
+        } else {
+            false
+        };
+
+        let Token::Identifier(ident) = self.tokenizer.next_token() else {
+            return Err(anyhow!("Expected identifier"));
+        };
+
+        let mut ty = Type::Named(ident);
+
+        while let Token::Operator("*") = self.tokenizer.next_token() {
+            ty = Type::Pointer(Box::new(ty))
+        }
+
+        Ok(Ast::Type(if is_const {
+            Type::Const(Box::new(ty))
+        } else {
+            ty
+        }))
     }
 
     fn expr_parse_ast(&mut self, handled_by_expr: bool) -> Result<Ast> {

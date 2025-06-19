@@ -1,17 +1,14 @@
-name: Build
+name: Check
 
-on:
-  push:
-    branches: [ "*" ]
+on: [ pull_request ]
 
 env:
-  CARGO_TERM_COLOR: always
   LLVM_SYS_181_PREFIX: /usr/lib/llvm-20
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
-    name: Build
+    name: Clippy check
 
     steps:
       - name: Install Rust
@@ -22,13 +19,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Build project and binary
-        run: make build CARGOFLAGS="--release" RS_BIN="./target/release/c-lang"
-
-      - name: Run binary
-        run: ./build/c-lang
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+      - name: Clippy check
+        uses: giraffate/clippy-action@v1
         with:
-          path: build
+          level: warning
+          reporter: github-pr-check
+          fail_on_error: true
+          filter_mode: nofilter
+

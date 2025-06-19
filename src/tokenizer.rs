@@ -1,3 +1,4 @@
+use crate::is_of_type;
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -11,7 +12,7 @@ pub enum Token {
     Identifier(String),
     Integer(String),
     String(String),
-    Operator(String),
+    Operator(&'static str),
     Semicolon,
     Comma,
     Ampersand,
@@ -33,36 +34,10 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn is_identifier(&self) -> bool {
-        if let Self::Identifier(_) = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_integer(&self) -> bool {
-        if let Self::Integer(_) = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_string(&self) -> bool {
-        if let Self::String(_) = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_operator(&self) -> bool {
-        if let Self::Operator(_) = self {
-            true
-        } else {
-            false
-        }
+    is_of_type! {
+        Identifier,
+        Integer,
+        Operator
     }
 }
 
@@ -78,11 +53,20 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn peek_char(&mut self) -> Option<char> {
-        self.chars.peek().map(|c| c.clone())
+        self.chars.peek().copied()
     }
 
     fn peek_is(&mut self, chr: char) -> bool {
         self.peek_char().map(|c| c == chr).unwrap_or(false)
+    }
+
+    fn consume_if(&mut self, chr: char) -> bool {
+        if self.peek_is(chr) {
+            self.next_char().expect("Character");
+            true
+        } else {
+            false
+        }
     }
 
     /// Consumes whitespace and comments
@@ -98,13 +82,26 @@ impl<'a> Tokenizer<'a> {
 
         let mut cloned = self.chars.clone();
         cloned.next();
-        if self.chars.peek().map(|c| *c == '/').unwrap_or(false)
-            && cloned.peek().map(|c| *c == '/').unwrap_or(false)
-        {
-            while self.chars.peek().map(|c| *c != '\n').unwrap_or(false) {
+
+        if self.peek_char().map(|c| c == '/').unwrap_or(false) {
+            if cloned.peek().map(|c| *c == '/').unwrap_or(false) {
+                while let Some(c) = self.next_char() {
+                    if c == '\n' {
+                        break;
+                    }
+                }
+
+                self.consume_whitespace();
+            } else if cloned.peek().map(|c| *c == '*').unwrap_or(false) {
+                while let Some(c) = self.next_char() {
+                    if c == '*' && self.peek_char().map(|p| p == '/').unwrap_or(false) {
+                        break;
+                    }
+                }
+
                 self.next_char();
+                self.consume_whitespace();
             }
-            self.next_char();
         }
     }
 
@@ -157,7 +154,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     pub fn next_token(&mut self) -> Token {
-        self.internal_next_token().unwrap_or_else(|| Token::EOF)
+        self.internal_next_token().unwrap_or(Token::EOF)
     }
 
     pub fn peek_token(&self) -> Token {
@@ -187,8 +184,10 @@ impl<'a> Tokenizer<'a> {
             if self.chars.peek().map(|c| c.is_numeric()).unwrap_or(false) {
                 let integer = format!("-{}", self.consume_integer()?);
                 Some(Token::Integer(integer))
+            } else if self.consume_if('>') {
+                Some(Token::Operator("->"))
             } else {
-                Some(Token::Operator(String::from("-")))
+                Some(Token::Operator("-"))
             }
         } else if peek.is_numeric() {
             Some(Token::Integer(self.consume_integer()?))
@@ -206,17 +205,43 @@ impl<'a> Tokenizer<'a> {
             self.next_char()?;
             match peek {
                 '=' => {
-                    if self.peek_is('=') {
-                        self.next_char()?;
-                        Some(Token::Operator(String::from("==")))
+                    if self.consume_if('=') {
+                        Some(Token::Operator("=="))
                     } else {
-                        Some(Token::Operator(String::from("=")))
+                        Some(Token::Operator("="))
                     }
                 }
-                '*' => Some(Token::Operator(String::from("*"))),
-                '/' => Some(Token::Operator(String::from("/"))),
-                '+' => Some(Token::Operator(String::from("+"))),
-                '-' => Some(Token::Operator(String::from("-"))),
+                '!' => {
+                    if self.consume_if('=') {
+                        Some(Token::Operator("!="))
+                    } else {
+                        Some(Token::Operator("!"))
+                    }
+                }
+                '<' => {
+                    if self.consume_if('=') {
+                        Some(Token::Operator("<="))
+                    } else {
+                        Some(Token::Operator("<"))
+                    }
+                }
+                '>' => {
+                    if self.consume_if('=') {
+                        Some(Token::Operator(">="))
+                    } else {
+                        Some(Token::Operator(">"))
+                    }
+                }
+                '*' => Some(Token::Operator("*")),
+                '/' => Some(Token::Operator("/")),
+                '+' => Some(Token::Operator("+")),
+                '-' => {
+                    if self.consume_if('>') {
+                        Some(Token::Operator("->"))
+                    } else {
+                        Some(Token::Operator("-"))
+                    }
+                }
                 '{' => Some(Token::BraceOpen),
                 '}' => Some(Token::BraceClose),
                 '(' => Some(Token::ParenOpen),
@@ -226,7 +251,7 @@ impl<'a> Tokenizer<'a> {
                 ';' => Some(Token::Semicolon),
                 ',' => Some(Token::Comma),
                 '&' => Some(Token::Ampersand),
-                '%' => Some(Token::Operator(String::from("%"))),
+                '%' => Some(Token::Operator("%")),
                 _ => None,
             }
         }
