@@ -5,9 +5,14 @@ SOURCES := $(wildcard src-c/*.c)
 OBJECTS := $(patsubst src-c/%.c,build/%.o,$(SOURCES))
 IR_FILES := $(patsubst src-c/%.c,build/%.ll,$(SOURCES))
 
-LIBRARIES := glib-2.0
+LIBRARIES := '' # Here if ever needed in the future
 
-LDFLAGS = -lc $(shell pkg-config --libs $(LIBRARIES))
+ifeq ($(LIBRARIES), '')
+	LDFLAGS = -lc
+else
+	LDFLAGS = -lc $(shell pkg-config --libs $(LIBRARIES))
+endif
+
 CRT1 = $(shell gcc -print-file-name=crt1.o)
 CRTI = $(shell gcc -print-file-name=crti.o)
 CRTN = $(shell gcc -print-file-name=crtn.o)
