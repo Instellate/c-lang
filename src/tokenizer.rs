@@ -1,3 +1,4 @@
+use crate::is_of_type;
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -33,20 +34,10 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn is_identifier(&self) -> bool {
-        matches!(self, Self::Identifier(_))
-    }
-
-    pub fn is_integer(&self) -> bool {
-        matches!(self, Self::Integer(_))
-    }
-
-    pub fn is_string(&self) -> bool {
-        matches!(self, Self::String(_))
-    }
-
-    pub fn is_operator(&self) -> bool {
-        matches!(self, Self::Operator(_))
+    is_of_type! {
+        Identifier,
+        Integer,
+        Operator
     }
 }
 
@@ -69,6 +60,15 @@ impl<'a> Tokenizer<'a> {
         self.peek_char().map(|c| c == chr).unwrap_or(false)
     }
 
+    fn consume_if(&mut self, chr: char) -> bool {
+        if self.peek_is(chr) {
+            self.next_char().expect("Character");
+            true
+        } else {
+            false
+        }
+    }
+
     /// Consumes whitespace and comments
     fn consume_whitespace(&mut self) {
         while self
@@ -82,13 +82,26 @@ impl<'a> Tokenizer<'a> {
 
         let mut cloned = self.chars.clone();
         cloned.next();
-        if self.chars.peek().map(|c| *c == '/').unwrap_or(false)
-            && cloned.peek().map(|c| *c == '/').unwrap_or(false)
-        {
-            while self.chars.peek().map(|c| *c != '\n').unwrap_or(false) {
+
+        if self.peek_char().map(|c| c == '/').unwrap_or(false) {
+            if cloned.peek().map(|c| *c == '/').unwrap_or(false) {
+                while let Some(c) = self.next_char() {
+                    if c == '\n' {
+                        break;
+                    }
+                }
+
+                self.consume_whitespace();
+            } else if cloned.peek().map(|c| *c == '*').unwrap_or(false) {
+                while let Some(c) = self.next_char() {
+                    if c == '*' && self.peek_char().map(|p| p == '/').unwrap_or(false) {
+                        break;
+                    }
+                }
+
                 self.next_char();
+                self.consume_whitespace();
             }
-            self.next_char();
         }
     }
 
@@ -171,6 +184,8 @@ impl<'a> Tokenizer<'a> {
             if self.chars.peek().map(|c| c.is_numeric()).unwrap_or(false) {
                 let integer = format!("-{}", self.consume_integer()?);
                 Some(Token::Integer(integer))
+            } else if self.consume_if('>') {
+                Some(Token::Operator("->"))
             } else {
                 Some(Token::Operator("-"))
             }
@@ -190,17 +205,43 @@ impl<'a> Tokenizer<'a> {
             self.next_char()?;
             match peek {
                 '=' => {
-                    if self.peek_is('=') {
-                        self.next_char()?;
+                    if self.consume_if('=') {
                         Some(Token::Operator("=="))
                     } else {
                         Some(Token::Operator("="))
                     }
                 }
+                '!' => {
+                    if self.consume_if('=') {
+                        Some(Token::Operator("!="))
+                    } else {
+                        Some(Token::Operator("!"))
+                    }
+                }
+                '<' => {
+                    if self.consume_if('=') {
+                        Some(Token::Operator("<="))
+                    } else {
+                        Some(Token::Operator("<"))
+                    }
+                }
+                '>' => {
+                    if self.consume_if('=') {
+                        Some(Token::Operator(">="))
+                    } else {
+                        Some(Token::Operator(">"))
+                    }
+                }
                 '*' => Some(Token::Operator("*")),
                 '/' => Some(Token::Operator("/")),
                 '+' => Some(Token::Operator("+")),
-                '-' => Some(Token::Operator("-")),
+                '-' => {
+                    if self.consume_if('>') {
+                        Some(Token::Operator("->"))
+                    } else {
+                        Some(Token::Operator("-"))
+                    }
+                }
                 '{' => Some(Token::BraceOpen),
                 '}' => Some(Token::BraceClose),
                 '(' => Some(Token::ParenOpen),

@@ -13,14 +13,11 @@ use inkwell::targets::{
 };
 use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{
-    AsValueRef, BasicValue, BasicValueEnum, FunctionValue, InstructionOpcode,
-    PointerValue,
+    AsValueRef, BasicValue, BasicValueEnum, FunctionValue, InstructionOpcode, PointerValue,
 };
 use inkwell::{AddressSpace, Either, IntPredicate, OptimizationLevel};
 use llvm_sys::prelude::LLVMBool;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
-use std::path::Path;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -51,10 +48,10 @@ pub struct IrBuilder<'ctx> {
 }
 
 impl<'ctx> IrBuilder<'ctx> {
-    pub fn new(context: &'ctx Context) -> Self {
+    pub fn new(context: &'ctx Context, module_name: &str) -> Self {
         Self {
             context,
-            module: Rc::new(context.create_module("c-lang")),
+            module: Rc::new(context.create_module(module_name)),
             builder: Rc::new(context.create_builder()),
             references: Default::default(),
         }
@@ -172,6 +169,7 @@ impl<'ctx> IrBuilder<'ctx> {
 
                     if val.get_opcode() == InstructionOpcode::Call {
                         unsafe { LLVMSetTailCall(val.as_value_ref(), LLVMBool::from(true)) }
+                        break;
                     }
                 }
             }
@@ -274,6 +272,23 @@ impl<'ctx> IrBuilder<'ctx> {
         }
     }
 
+    fn build_cmp(
+        &self,
+        lhs_val: ReferenceType<'ctx>,
+        rhs_val: ReferenceType<'ctx>,
+        predicate: IntPredicate,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        Ok(self
+            .builder
+            .build_int_compare(
+                predicate,
+                lhs_val.get_value(&self.builder)?.into_int_value(),
+                rhs_val.get_value(&self.builder)?.into_int_value(),
+                "cmp",
+            )?
+            .into())
+    }
+
     pub fn visit_expression(&mut self, expression: Expression) -> Result<BasicValueEnum<'ctx>> {
         let Expression::Infix(lhs, operator, rhs) = expression else {
             return Err(anyhow!("Expected infix"));
@@ -293,15 +308,12 @@ impl<'ctx> IrBuilder<'ctx> {
                 let val = lhs_val.get_value(&self.builder)?;
                 Ok(val)
             }
-            InfixOperator::Equals => Ok(self
-                .builder
-                .build_int_compare(
-                    IntPredicate::EQ,
-                    lhs_val.get_value(&self.builder)?.into_int_value(),
-                    rhs_val.get_value(&self.builder)?.into_int_value(),
-                    "cmp",
-                )?
-                .into()),
+            InfixOperator::Equals => self.build_cmp(lhs_val, rhs_val, IntPredicate::EQ),
+            InfixOperator::NotEquals => self.build_cmp(lhs_val, rhs_val, IntPredicate::NE),
+            InfixOperator::Greater => self.build_cmp(lhs_val, rhs_val, IntPredicate::SGE),
+            InfixOperator::GreaterOrEq => self.build_cmp(lhs_val, rhs_val, IntPredicate::SGT),
+            InfixOperator::Less => self.build_cmp(lhs_val, rhs_val, IntPredicate::SLT),
+            InfixOperator::LessOrEq => self.build_cmp(lhs_val, rhs_val, IntPredicate::SLE),
             InfixOperator::Mul => Ok(self
                 .builder
                 .build_int_mul(
@@ -342,6 +354,8 @@ impl<'ctx> IrBuilder<'ctx> {
                     "mod",
                 )?
                 .into()),
+            InfixOperator::MemberAccess => todo!(),
+            InfixOperator::MemberAccessPtr => todo!(),
         }
     }
 
@@ -376,7 +390,10 @@ impl<'ctx> IrBuilder<'ctx> {
         })
     }
 
-    pub fn visit_if_statement(&mut self, statement: IfStatement) -> Result<BasicBlock<'ctx>> {
+    pub fn visit_if_statement(
+        &mut self,
+        statement: IfStatement,
+    ) -> Result<(BasicBlock<'ctx>, BasicBlock<'ctx>)> {
         let expression = self.visit_expression(statement.expression)?;
         let Some(current_block) = self.builder.get_insert_block() else {
             return Err(anyhow!("Expected some value for builder insert block"));
@@ -385,8 +402,19 @@ impl<'ctx> IrBuilder<'ctx> {
         let if_block = self.context.insert_basic_block_after(current_block, "if");
         let mut self_cloned = self.clone();
         let if_block = self_cloned.visit_block(statement.block, if_block)?;
-
         let continue_block = self.context.insert_basic_block_after(if_block, "continue");
+
+        // This can occur as the `if` statement visit block can contain itself an if statement block
+        if let Some(maybe_continue) = self.builder.get_insert_block() {
+            if maybe_continue.get_name().to_str()?.starts_with("continue") {
+                let ret = maybe_continue
+                    .get_instructions()
+                    .find(|i| i.get_opcode() == InstructionOpcode::Return);
+                if ret.is_none() {
+                    self.builder.build_unconditional_branch(continue_block)?;
+                }
+            }
+        }
 
         let else_block = if let Some(else_statement) = statement.else_statement {
             let else_block = self.context.prepend_basic_block(continue_block, "else");
@@ -398,27 +426,38 @@ impl<'ctx> IrBuilder<'ctx> {
                     let ret = else_block
                         .get_instructions()
                         .find(|i| i.get_opcode() == InstructionOpcode::Return);
-                    if ret.is_none() {
+
+                    let branch = else_block
+                        .get_last_instruction()
+                        .filter(|i| i.get_opcode() == InstructionOpcode::Br);
+
+                    if ret.is_none() && branch.is_none() {
                         self.builder.build_unconditional_branch(continue_block)?;
                     }
 
                     self.builder.position_at_end(if_block);
-                    (else_block, ret.is_some())
+                    (else_block, ret.is_some() || branch.is_some())
                 }
                 ElseStatement::ElseIf(ei) => {
                     self.builder.position_at_end(else_block);
-                    let block = self.visit_if_statement(ei)?;
+                    let (block, cont_block) = self.visit_if_statement(ei)?;
                     block.set_name("else-if");
 
-                    let ret = block
-                        .get_instructions()
-                        .find(|i| i.get_opcode() == InstructionOpcode::Return);
-                    if ret.is_none() {
+                    let ret = cont_block
+                        .get_last_instruction()
+                        .filter(|i| i.get_opcode() == InstructionOpcode::Return);
+
+                    let branch = cont_block
+                        .get_last_instruction()
+                        .filter(|i| i.get_opcode() == InstructionOpcode::Br);
+
+                    if ret.is_none() && branch.is_none() {
+                        self.builder.position_at_end(cont_block);
                         self.builder.build_unconditional_branch(continue_block)?;
                     }
-                    self.builder.position_at_end(if_block);
 
-                    (else_block, ret.is_some())
+                    self.builder.position_at_end(if_block);
+                    (else_block, ret.is_some() || branch.is_some())
                 }
             };
 
@@ -433,13 +472,17 @@ impl<'ctx> IrBuilder<'ctx> {
             if_block,
             else_block.map(|(b, _)| b).unwrap_or_else(|| continue_block),
         )?;
-
         self.builder.position_at_end(if_block);
+
         let ret = if_block
             .get_instructions()
             .find(|i| i.get_opcode() == InstructionOpcode::Return);
 
-        if ret.is_none() {
+        let branch = if_block
+            .get_last_instruction()
+            .filter(|i| i.get_opcode() == InstructionOpcode::Br);
+
+        if ret.is_none() && branch.is_none() {
             self.builder.build_unconditional_branch(continue_block)?;
         }
 
@@ -448,13 +491,11 @@ impl<'ctx> IrBuilder<'ctx> {
                 continue_block
                     .remove_from_function()
                     .map_err(|_| anyhow!("Couldn't remove from function"))?;
-            } else {
-                self.builder.build_unconditional_branch(continue_block)?;
             }
         }
 
         self.builder.position_at_end(continue_block);
-        Ok(if_block)
+        Ok((if_block, continue_block))
     }
 
     fn visit_identifier(&self, name: &str) -> Result<ReferenceType<'ctx>> {
@@ -469,7 +510,7 @@ impl<'ctx> IrBuilder<'ctx> {
         }
     }
 
-    pub fn output_object(&self) -> Result<()> {
+    pub fn output_object(&self, path: &std::path::Path) -> Result<()> {
         let triple = TargetMachine::get_default_triple();
         let cpu = TargetMachine::get_host_cpu_name();
         let features = TargetMachine::get_host_cpu_features();
@@ -489,15 +530,15 @@ impl<'ctx> IrBuilder<'ctx> {
             .ok_or_else(|| anyhow!("Couldn't create host machine"))?;
 
         machine
-            .write_to_file(&self.module, FileType::Object, Path::new("./ir.o"))
+            .write_to_file(&self.module, FileType::Object, path)
             .map_err(|e| anyhow!(e.to_string()))?;
 
         Ok(())
     }
-}
 
-impl Display for IrBuilder<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.module.to_string())
+    pub fn output_ir(&self, path: &std::path::Path) -> Result<()> {
+        self.module
+            .print_to_file(path)
+            .map_err(|e| anyhow!(e.to_string()))
     }
 }

@@ -1,3 +1,4 @@
+use crate::is_of_type;
 use crate::tokenizer::{Token, Tokenizer};
 use anyhow::{Result, anyhow};
 
@@ -7,20 +8,29 @@ pub type Block = Vec<Ast>;
 pub enum InfixOperator {
     Assignment,
     Equals,
+    NotEquals,
+    Greater,
+    GreaterOrEq,
+    Less,
+    LessOrEq,
     Mul,
     Div,
     Add,
     Sub,
     Modulo,
+    MemberAccess,
+    MemberAccessPtr,
 }
 
 impl InfixOperator {
     pub fn precedence(&self) -> u16 {
         match self {
+            Self::MemberAccess | Self::MemberAccessPtr => 1,
             Self::Mul | Self::Div | Self::Modulo => 2,
             Self::Add | Self::Sub => 3,
-            Self::Equals => 4,
-            Self::Assignment => 5,
+            Self::Less | Self::LessOrEq | Self::Greater | Self::GreaterOrEq => 4,
+            Self::Equals | Self::NotEquals => 5,
+            Self::Assignment => 6,
         }
     }
 }
@@ -32,11 +42,18 @@ impl TryFrom<&str> for InfixOperator {
         match value {
             "=" => Ok(Self::Assignment),
             "==" => Ok(Self::Equals),
+            "!=" => Ok(Self::NotEquals),
+            ">" => Ok(Self::Greater),
+            ">=" => Ok(Self::GreaterOrEq),
+            "<" => Ok(Self::Less),
+            "<=" => Ok(Self::LessOrEq),
             "*" => Ok(Self::Mul),
             "/" => Ok(Self::Div),
             "+" => Ok(Self::Add),
             "-" => Ok(Self::Sub),
             "%" => Ok(Self::Modulo),
+            "." => Ok(Self::MemberAccess),
+            "->" => Ok(Self::MemberAccessPtr),
             _ => Err(anyhow!("Operator does not exist")),
         }
     }
@@ -46,6 +63,10 @@ impl TryFrom<&str> for InfixOperator {
 pub enum Constant {
     Integer(i64),
     String(String),
+}
+
+impl Constant {
+    is_of_type! { Integer, String }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -190,8 +211,17 @@ pub enum Ast {
 }
 
 impl Ast {
-    pub fn is_expression(&self) -> bool {
-        matches!(self, Self::Expression(_))
+    is_of_type! {
+        VarDeclaration,
+        Expression,
+        Identifier,
+        Type,
+        Constant,
+        FunctionSig,
+        Function,
+        Return,
+        IfStatement,
+        Call
     }
 }
 
@@ -406,8 +436,7 @@ impl<'a> Parser<'a> {
             let ast = self.parse_ast()?;
             args.push(ast);
 
-            let token1 = self.tokenizer.next_token();
-            match token1 {
+            match self.tokenizer.next_token() {
                 Token::ParenClose => break,
                 Token::Comma => {}
                 _ => return Err(anyhow!("Expected ')' or ','")),
